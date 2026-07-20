@@ -17,9 +17,7 @@ TRADE (Target Refresh via Adaptive Decay Estimation) adapts the target-network r
 - `train_worker.py`: training, evaluation, checkpointing, and multiprocessing worker code.
 - `atari_wrappers.py`: Atari preprocessing and frame stacking.
 - `networks.py` and `replay_buffer.py`: network and replay-buffer implementations.
-- `plot_utils.py`, `plot_top.py`, and `plot_tau_scores.py`: plotting utilities.
-- `extract_tau_scores.py`, `summarize_pkl_folder.py`, and `time_get.py`: result-analysis utilities.
-- `sensitivity_adaptive_epsilon_tol.py`: sensitivity experiments for the adaptive threshold.
+- `plot_utils.py`: plotting utilities for the training results.
 
 Training results, replay data, model checkpoints, and other generated artifacts are intentionally excluded from version control.
 
