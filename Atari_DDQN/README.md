@@ -6,8 +6,8 @@ TRADE (Target Refresh via Adaptive Decay Estimation) adapts the target-network r
 
 ## Paper
 
-- [Main paper (PDF)](paper/TRADE_main.pdf)
-- [Supplementary material (PDF)](paper/TRADE_appendix.pdf)
+- [Main paper (PDF)](../paper/TRADE_main.pdf)
+- [Supplementary material (PDF)](../paper/TRADE_appendix.pdf)
 
 ## Repository contents
 
