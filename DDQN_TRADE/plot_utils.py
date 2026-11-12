@@ -205,7 +205,7 @@ def plot_env_results(env_id):
             max_step=step_limit,
         )
         if a_mean is not None:
-            plt.plot(eval_steps, a_mean, label='Hard adaptive update', color='#d62728', linewidth=2)
+            plt.plot(eval_steps, a_mean, label='DDQN+TRADE', color='#d62728', linewidth=2)
             plt.fill_between(eval_steps, a_mean - a_std, a_mean + a_std, color='#d62728', alpha=0.2)
 
     plt.xlabel('Steps', fontsize=12)
@@ -299,7 +299,7 @@ def plot_env_results(env_id):
             )
 
         if adaptive_loss_mean is not None:
-            plt.plot(common_grid, adaptive_loss_mean, linewidth=1.8, color='#d62728', label='Hard adaptive update')
+            plt.plot(common_grid, adaptive_loss_mean, linewidth=1.8, color='#d62728', label='DDQN+TRADE')
             plt.fill_between(
                 common_grid,
                 adaptive_loss_mean - adaptive_loss_std,

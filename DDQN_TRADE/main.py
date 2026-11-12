@@ -41,26 +41,10 @@ MODE_TO_IS_FIXED = {
 
 
 def _parse_optional_positive_int(value):
-    text = str(value).strip().lower()
-    if text in ("none", "null"):
-        return None
-    try:
-        parsed = int(text)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("必须是正整数，或 none/null") from exc
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError("必须是正整数")
-    return parsed
-
-
-def _parse_positive_float(value):
-    try:
-        parsed = float(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("必须是正浮点数") from exc
-    if parsed <= 0.0:
-        raise argparse.ArgumentTypeError("必须是正浮点数")
-    return parsed
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError("Must be a positive environment-step count")
+    return number
 
 
 def _resolve_runtime_gpus(config_gpu_ids):
@@ -81,7 +65,7 @@ def _parse_args():
         default=None,
         help=(
             "指定要训练的环境ID列表（空格分隔）。"
-            "例如: --envs PongNoFrameskip-v4 BreakoutNoFrameskip-v4"
+            "例如: --envs FrostbiteNoFrameskip-v4 BreakoutNoFrameskip-v4"
         ),
     )
     parser.add_argument(
@@ -110,19 +94,11 @@ def _parse_args():
         default=config.ADAPTIVE_PARAMS.get("adaptive_C_min"),
         help=(
             "自适应更新的最小间隔 C_min。"
-            "传 none/null 表示按公式自动估计。"
             f"默认: {config.ADAPTIVE_PARAMS.get('adaptive_C_min')}"
         ),
     )
-    parser.add_argument(
-        "--adaptive-epsilon-tol",
-        type=_parse_positive_float,
-        default=float(config.ADAPTIVE_PARAMS["adaptive_epsilon_tol"]),
-        help=(
-            "自适应更新中的阈值 epsilon_tol（正浮点数）。"
-            f"默认: {config.ADAPTIVE_PARAMS['adaptive_epsilon_tol']}"
-        ),
-    )
+    parser.add_argument("--total-steps", type=_parse_optional_positive_int,
+                        default=config.TOTAL_STEPS)
     return parser.parse_args()
 
 
@@ -202,7 +178,6 @@ def main():
     selected_modes = _resolve_selected_modes(args.modes)
     selected_seeds = _resolve_selected_seeds(args.seeds)
     selected_adaptive_c_min = args.adaptive_c_min
-    selected_adaptive_epsilon_tol = args.adaptive_epsilon_tol
 
     runtime_gpus = _resolve_runtime_gpus(config.AVAILABLE_GPUS)
     runtime_max_parallel = max(1, len(runtime_gpus) * config.NUM_WORKERS_PER_GPU) if runtime_gpus else 1
@@ -217,7 +192,6 @@ def main():
     print(f"训练模式: {selected_modes}")
     print(f"Seed列表: {selected_seeds}")
     print(f"adaptive_C_min: {selected_adaptive_c_min}")
-    print(f"adaptive_epsilon_tol: {selected_adaptive_epsilon_tol}")
     print("=" * 80)
 
     # ===================== 生成所有任务 =====================
@@ -234,7 +208,7 @@ def main():
                         is_fixed,
                         paths,
                         selected_adaptive_c_min,
-                        selected_adaptive_epsilon_tol,
+                        args.total_steps,
                     )
                 )
 

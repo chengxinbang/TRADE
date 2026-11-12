@@ -1,0 +1,8 @@
+torch>=2.2
+numpy>=1.26,<3
+gymnasium[mujoco]==1.1.1
+mujoco==3.3.6
+dm-control==1.0.34
+scipy==1.15.3
+matplotlib>=3.9
+tqdm>=4.66

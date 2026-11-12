@@ -60,7 +60,7 @@ def _candidate_prefixes(is_fixed):
     if not is_fixed:
         return ["adaptive"]
     # 兼容历史固定模式命名：fixed_C{C} / fixed_C* / fixed
-    return [f"fixed_C{config.FIXED_C}", "fixed_C*", "fixed"]
+    return [f"fixed_C{config.FIXED_C}"]
 
 
 def _find_latest_checkpoint(paths, env_id, seed, is_fixed, total_steps=None):
@@ -157,11 +157,11 @@ def evaluate_agent(agent, env, eval_episodes=None, epsilon=None, max_frames=None
         frame_count = 0
         while (not done) and (frame_count < max_frames):
             action = agent.select_action(state, epsilon)
-            next_state, reward, terminated, truncated, _ = env.step(action)
+            next_state, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
             episode_reward += reward
             state = next_state
-            frame_count += 1
+            frame_count += int(info.get("raw_frames", 4))
         total_rewards.append(episode_reward)
     return np.mean(total_rewards)
 
@@ -197,28 +197,7 @@ def run_single_training(task_queue, result_queue, gpu_id):
             result_queue.put(None)
             break
 
-        # 解析任务（兼容旧格式: 4元组；新格式: 6元组）
-        if len(task) == 7:
-            (env_id, seed, is_fixed, paths, adaptive_c_min, adaptive_epsilon_tol, total_steps) = task
-        elif len(task) == 6:
-            (env_id, seed, is_fixed, paths, adaptive_c_min, adaptive_epsilon_tol) = task
-            total_steps = config.TOTAL_STEPS
-        elif len(task) == 4:
-            (env_id, seed, is_fixed, paths) = task
-            adaptive_c_min = config.ADAPTIVE_PARAMS.get("adaptive_C_min")
-            adaptive_epsilon_tol = config.ADAPTIVE_PARAMS["adaptive_epsilon_tol"]
-            total_steps = config.TOTAL_STEPS
-        else:
-            result_queue.put(
-                {
-                    "status": "error",
-                    "env_id": "unknown",
-                    "seed": -1,
-                    "is_fixed": True,
-                    "error": f"bad_task_format: len={len(task)}",
-                }
-            )
-            continue
+        env_id, seed, is_fixed, paths, adaptive_c_min, total_steps = task
         total_steps = int(total_steps)
         if total_steps <= 0:
             result_queue.put(
@@ -271,14 +250,7 @@ def run_single_training(task_queue, result_queue, gpu_id):
         # 初始化回放池
         replay_buffer = ReplayBuffer(capacity=config.REPLAY_CAPACITY)
 
-        C_min = 500
-        if not is_fixed:
-            if adaptive_c_min is None:
-                gamma = 0.99
-                rho_est = 0.99
-                C_min = np.ceil(np.log((1 - gamma) / (1 + gamma)) / np.log(rho_est)).astype(int)
-            else:
-                C_min = adaptive_c_min
+        C_min = int(adaptive_c_min)
 
         # 初始化Agent
         agent = DDQNAgent(
@@ -289,11 +261,10 @@ def run_single_training(task_queue, result_queue, gpu_id):
             fixed_update_interval=config.FIXED_C,
             use_adaptive_update=not is_fixed,
             C_min=C_min,
-            epsilon_tol=adaptive_epsilon_tol,
         )
 
         # 训练状态初始化
-        state, _ = train_env.reset()
+        state, _ = train_env.reset(seed=seed)
         current_step = 0
         epsilon = config.EPSILON_START
 
@@ -323,10 +294,11 @@ def run_single_training(task_queue, result_queue, gpu_id):
                     f"resume_step={current_step} | full_state={'yes' if restored_full else 'no(legacy)'}"
                 )
             except Exception as e:
-                print(f"[Worker GPU:{gpu_id}] 加载checkpoint失败，回退冷启动: {e}")
-                current_step = 0
-                epsilon = config.EPSILON_START
-                previous_elapsed_time_sec = 0.0
+                result_queue.put(dict(status="error", env_id=env_id, seed=seed,
+                                      is_fixed=is_fixed, error=f"checkpoint_incompatible: {e}"))
+                train_env.close()
+                eval_env.close()
+                continue
 
         if current_step >= total_steps:
             elapsed_time_sec = previous_elapsed_time_sec + (time.perf_counter() - task_wall_start)
@@ -351,9 +323,6 @@ def run_single_training(task_queue, result_queue, gpu_id):
                 if "adaptive_C_min" not in result_data:
                     result_data["adaptive_C_min"] = None if adaptive_c_min is None else int(adaptive_c_min)
                     should_update_pkl = True
-                if "adaptive_epsilon_tol" not in result_data:
-                    result_data["adaptive_epsilon_tol"] = float(adaptive_epsilon_tol)
-                    should_update_pkl = True
                 if "total_steps" not in result_data:
                     result_data["total_steps"] = int(total_steps)
                     should_update_pkl = True
@@ -365,8 +334,8 @@ def run_single_training(task_queue, result_queue, gpu_id):
                     "total_steps": int(total_steps),
                     "elapsed_time_sec": float(elapsed_time_sec),
                     "elapsed_time_hours": float(elapsed_time_sec / 3600.0),
-                    "adaptive_C_min": None if adaptive_c_min is None else int(adaptive_c_min),
-                    "adaptive_epsilon_tol": float(adaptive_epsilon_tol),
+                    "adaptive_C_min": int(adaptive_c_min),
+                    "protocol": "loss-ema-env-step-v1",
                     "step_records": np.array(step_records),
                     "returns": np.array(return_records),
                     "C_steps": np.array(agent.adaptive_C_step_history) if not is_fixed else np.array([]),
@@ -401,6 +370,7 @@ def run_single_training(task_queue, result_queue, gpu_id):
 
         try:
             while current_step < total_steps:
+                current_step += 1
                 # 更新进度条显示
                 if current_step % 500 == 0:
                     pbar.set_postfix(
@@ -413,17 +383,18 @@ def run_single_training(task_queue, result_queue, gpu_id):
                     )
 
                 # 更新探索率
-                epsilon = _scheduled_epsilon(current_step)
+                epsilon = (1.0 if current_step <= config.WARMUP_STEPS
+                           else _scheduled_epsilon(current_step - 1))
 
                 # 环境交互
                 action = agent.select_action(state, epsilon)
                 next_state, reward, terminated, truncated, _ = train_env.step(action)
                 done = terminated or truncated
-                replay_buffer.add(state, action, reward, next_state, done)
+                replay_buffer.add(state, action, reward, next_state, terminated)
                 state = next_state
 
                 if done:
-                    state, _ = train_env.reset()
+                    state, _ = train_env.reset(seed=seed)
 
                 # 网络更新
                 if (
@@ -465,7 +436,6 @@ def run_single_training(task_queue, result_queue, gpu_id):
                         total_steps=total_steps,
                     )
 
-                current_step += 1
                 pbar_pending += 1
                 if pbar_pending >= pbar_update_every:
                     pbar.update(pbar_pending)
@@ -498,8 +468,8 @@ def run_single_training(task_queue, result_queue, gpu_id):
                 "total_steps": int(total_steps),
                 "elapsed_time_sec": float(elapsed_time_sec),
                 "elapsed_time_hours": float(elapsed_time_sec / 3600.0),
-                "adaptive_C_min": None if adaptive_c_min is None else int(adaptive_c_min),
-                "adaptive_epsilon_tol": float(adaptive_epsilon_tol),
+                "adaptive_C_min": int(adaptive_c_min),
+                    "protocol": "loss-ema-env-step-v1",
                 "step_records": np.array(step_records),
                 "returns": np.array(return_records),
                 "C_steps": np.array(agent.adaptive_C_step_history) if not is_fixed else np.array([]),

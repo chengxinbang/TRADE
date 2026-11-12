@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+tests/.smoke/
+results/
+*.pt
+*.pth
+*.pkl
+*.npz

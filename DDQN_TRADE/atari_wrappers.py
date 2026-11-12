@@ -29,7 +29,7 @@ class NoopResetEnv(gym.Wrapper):
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
-        noops = np.random.randint(1, self.noop_max + 1)
+        noops = int(self.env.unwrapped.np_random.integers(1, self.noop_max + 1))
         for _ in range(noops):
             obs, _, terminated, truncated, info = self.env.step(self.noop_action)
             if terminated or truncated:
@@ -85,27 +85,23 @@ class EpisodicLifeEnv(gym.Wrapper):
 class MaxAndSkipEnv(gym.Wrapper):
     def __init__(self, env, skip=4):
         super().__init__(env)
-        self._obs_buffer = np.zeros((2,) + env.observation_space.shape, dtype=np.uint8)
         self._skip = skip
 
     def step(self, action):
         total_reward = 0.0
-        terminated = False
-        truncated = False
-        info = None
-        for i in range(self._skip):
-            obs, reward, term, trunc, info = self.env.step(action)
-            if i == self._skip - 2:
-                self._obs_buffer[0] = obs
-            if i == self._skip - 1:
-                self._obs_buffer[1] = obs
+        frames = deque(maxlen=2)
+        raw_frames = 0
+        for _ in range(self._skip):
+            obs, reward, terminated, truncated, info = self.env.step(action)
+            frames.append(obs)
+            raw_frames += 1
             total_reward += reward
-            terminated = terminated or term
-            truncated = truncated or trunc
             if terminated or truncated:
                 break
-        max_frame = self._obs_buffer.max(axis=0)
-        return max_frame, total_reward, terminated, truncated, info
+        info = dict(info)
+        info["raw_frames"] = raw_frames
+        return np.maximum.reduce(frames), total_reward, terminated, truncated, info
+
 
 
 class WarpFrame(gym.ObservationWrapper):
@@ -169,7 +165,8 @@ class ClipRewardEnv(gym.RewardWrapper):
 def make_atari_env(env_id, seed=42, episode_life=True, clip_rewards=True):
     """Atari环境构造：训练与评估可切换 wrapper 组合。"""
     normalized_env_id = _normalize_atari_env_id(env_id)
-    env = gym.make(normalized_env_id)
+    env = gym.make(normalized_env_id, frameskip=1, repeat_action_probability=0.0)
+    env.reset(seed=seed)
     env = NoopResetEnv(env, noop_max=30)
     env = MaxAndSkipEnv(env, skip=4)
     if episode_life:

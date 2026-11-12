@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Experiment data, checkpoints, and generated outputs
+ddqn_adaptive_results/
+plot_az/
+results/
+checkpoints/
+plots_latest/
+*.pkl
+*.pth
+*.pt
+*.ckpt
+*.npy
+*.npz
+*.log
+
+# Local work and editor metadata
+tmp/
+.agents/
+.codex/
+.repo-git/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
